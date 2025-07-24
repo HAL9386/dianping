@@ -1,14 +1,20 @@
 package com.dp.controller;
 
 
+import cn.hutool.core.util.RandomUtil;
+import com.dp.constant.MessageConstant;
 import com.dp.dto.LoginFormDTO;
 import com.dp.dto.Result;
+import com.dp.entity.User;
 import com.dp.entity.UserInfo;
 import com.dp.service.IUserInfoService;
 import com.dp.service.IUserService;
+import com.dp.utils.RegexUtils;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+
+import static com.baomidou.mybatisplus.core.toolkit.Wrappers.query;
 
 @Slf4j
 @RestController
@@ -28,8 +34,15 @@ public class UserController {
    */
   @PostMapping("code")
   public Result sendCode(@RequestParam("phone") String phone, HttpSession session) {
-    // TODO 发送短信验证码并保存验证码
-    return Result.fail("功能未完成");
+    if (!RegexUtils.isPhoneInvalid(phone)) {
+      return Result.fail(MessageConstant.INVALID_PHONE_NUMBER);
+    }
+    // 发送短信验证码
+    String code = RandomUtil.randomString(6);
+    log.info("发送短信验证码: {}", code);
+    // 保存验证码
+    session.setAttribute("code", code);
+    return Result.ok();
   }
 
   /**
@@ -40,7 +53,23 @@ public class UserController {
   @PostMapping("/login")
   public Result login(@RequestBody LoginFormDTO loginForm, HttpSession session) {
     // TODO 实现登录功能
-    return Result.fail("功能未完成");
+    if (loginForm.getPhone() == null || loginForm.getCode() == null) {
+      return Result.fail(MessageConstant.PHONE_CODE_IS_NULL);
+    }
+    if (!RegexUtils.isPhoneInvalid(loginForm.getPhone())) {
+      return Result.fail(MessageConstant.INVALID_PHONE_NUMBER);
+    }
+    if (!loginForm.getCode().equals(session.getAttribute("code"))) {
+      return Result.fail(MessageConstant.INVALID_CODE);
+    }
+    // 登录成功，删除验证码
+    session.removeAttribute("code");
+    User user = query().eq("phone", loginForm.getPhone()).one();
+    if (user == null) {
+      user = userService.createUserWithPhone(loginForm.getPhone());
+    }
+    session.setAttribute("user", user);
+    return Result.ok();
   }
 
   /**
