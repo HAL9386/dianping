@@ -1,11 +1,13 @@
 package com.dp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.constant.MessageConstant;
 import com.dp.constant.UserEntityConstant;
 import com.dp.dto.LoginFormDTO;
 import com.dp.dto.Result;
+import com.dp.dto.UserDTO;
 import com.dp.entity.User;
 import com.dp.mapper.UserMapper;
 import com.dp.service.IUserService;
@@ -66,7 +68,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     if (user == null) {
       user = createUserWithPhone(loginForm.getPhone());
     }
-    session.setAttribute(SystemConstants.USER_SESSION_KEY, user);
+    session.setAttribute(SystemConstants.USER_SESSION_KEY, BeanUtil.copyProperties(user, UserDTO.class));
     return Result.ok();
   }
 
