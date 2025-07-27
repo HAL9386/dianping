@@ -1,9 +1,12 @@
 package com.dp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.constant.MessageConstant;
+import com.dp.constant.RedisConstant;
 import com.dp.constant.UserEntityConstant;
 import com.dp.dto.LoginFormDTO;
 import com.dp.dto.Result;
@@ -15,11 +18,21 @@ import com.dp.utils.RegexUtils;
 import com.dp.utils.SystemConstants;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
+  private final StringRedisTemplate stringRedisTemplate;
+
+  public UserServiceImpl(StringRedisTemplate stringRedisTemplate) {
+    this.stringRedisTemplate = stringRedisTemplate;
+  }
 
   /**
    * 发送短信验证码
@@ -36,9 +49,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
     // 生成验证码
     String code = RandomUtil.randomNumbers(SystemConstants.VERIFICATION_CODE_LENGTH);
-    session.setAttribute(SystemConstants.USER_PHONE_SESSION_KEY, phone);
-    // 保存验证码到session
-    session.setAttribute(SystemConstants.VERIFICATION_CODE_SESSION_KEY, code);
+    // 保存验证码到Redis
+    stringRedisTemplate.opsForValue().set(RedisConstant.LOGIN_CODE_KEY_PREFIX + phone,
+      code,
+      RedisConstant.LOGIN_CODE_TTL,
+      TimeUnit.MINUTES);
     // 发送验证码
     log.debug("给手机号 {} 发送短信验证码: {}", phone, code);
     return Result.ok();
@@ -60,21 +75,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     if (RegexUtils.isCodeInvalid(loginForm.getCode())) {
       return Result.fail(MessageConstant.INVALID_CODE);
     }
-    if (!loginForm.getPhone().equals(session.getAttribute(SystemConstants.USER_PHONE_SESSION_KEY))) {
+    String phone = loginForm.getPhone();
+    String code = loginForm.getCode();
+    // 从Redis中获取验证码
+    String cachedCode = stringRedisTemplate.opsForValue().get(RedisConstant.LOGIN_CODE_KEY_PREFIX + phone);
+    if (!code.equals(cachedCode)) {
       return Result.fail(MessageConstant.INVALID_CODE);
     }
-    if (!loginForm.getCode().equals(session.getAttribute(SystemConstants.VERIFICATION_CODE_SESSION_KEY))) {
-      return Result.fail(MessageConstant.INVALID_CODE);
-    }
-    // 登录成功，删除验证码
-    session.removeAttribute(SystemConstants.USER_PHONE_SESSION_KEY);
-    session.removeAttribute(SystemConstants.VERIFICATION_CODE_SESSION_KEY);
+    stringRedisTemplate.delete(RedisConstant.LOGIN_CODE_KEY_PREFIX + phone);
     User user = query().eq(UserEntityConstant.COLUMN_PHONE, loginForm.getPhone()).one();
     if (user == null) {
       user = createUserWithPhone(loginForm.getPhone());
     }
-    session.setAttribute(SystemConstants.USER_SESSION_KEY, BeanUtil.copyProperties(user, UserDTO.class));
-    return Result.ok();
+    UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+    Map<String, Object> userDtoMap = BeanUtil.beanToMap(userDTO, new HashMap<>(),
+      CopyOptions.create().ignoreNullValue().setFieldValueEditor(
+        (fieldName, fieldValue) -> fieldValue.toString()
+      ));
+    String token = UUID.randomUUID().toString(true);
+    String tokenKey = RedisConstant.LOGIN_USER_KEY_PREFIX + token;
+    stringRedisTemplate.opsForHash().putAll(tokenKey, userDtoMap);
+    stringRedisTemplate.expire(tokenKey, RedisConstant.LOGIN_USER_TTL, TimeUnit.MINUTES);
+    return Result.ok(token);
   }
 
   /**
