@@ -36,10 +36,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
     // 生成验证码
     String code = RandomUtil.randomNumbers(SystemConstants.VERIFICATION_CODE_LENGTH);
+    session.setAttribute(SystemConstants.USER_PHONE_SESSION_KEY, phone);
     // 保存验证码到session
     session.setAttribute(SystemConstants.VERIFICATION_CODE_SESSION_KEY, code);
     // 发送验证码
-    log.debug("发送短信验证码: {}", code);
+    log.debug("给手机号 {} 发送短信验证码: {}", phone, code);
     return Result.ok();
   }
 
@@ -59,10 +60,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     if (RegexUtils.isCodeInvalid(loginForm.getCode())) {
       return Result.fail(MessageConstant.INVALID_CODE);
     }
+    if (!loginForm.getPhone().equals(session.getAttribute(SystemConstants.USER_PHONE_SESSION_KEY))) {
+      return Result.fail(MessageConstant.INVALID_CODE);
+    }
     if (!loginForm.getCode().equals(session.getAttribute(SystemConstants.VERIFICATION_CODE_SESSION_KEY))) {
       return Result.fail(MessageConstant.INVALID_CODE);
     }
     // 登录成功，删除验证码
+    session.removeAttribute(SystemConstants.USER_PHONE_SESSION_KEY);
     session.removeAttribute(SystemConstants.VERIFICATION_CODE_SESSION_KEY);
     User user = query().eq(UserEntityConstant.COLUMN_PHONE, loginForm.getPhone()).one();
     if (user == null) {

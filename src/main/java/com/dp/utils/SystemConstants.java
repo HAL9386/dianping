@@ -9,4 +9,5 @@ public class SystemConstants {
   public static final String VERIFICATION_CODE_SESSION_KEY = "code";
   public static final String USER_SESSION_KEY = "user";
   public static final int USER_NICK_NAME_SUFFIX_LENGTH = 10;
+  public static final String USER_PHONE_SESSION_KEY = "phone";
 }
