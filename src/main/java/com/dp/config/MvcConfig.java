@@ -1,6 +1,7 @@
 package com.dp.config;
 
 import com.dp.interceptor.LoginInterceptor;
+import com.dp.interceptor.RefreshTokenInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -16,7 +17,10 @@ public class MvcConfig implements WebMvcConfigurer {
 
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
-    registry.addInterceptor(new LoginInterceptor(stringRedisTemplate)).excludePathPatterns(
+    // 刷新token的拦截器
+    registry.addInterceptor(new RefreshTokenInterceptor(stringRedisTemplate)).addPathPatterns("/**").order(0);
+    // 身份校验拦截器
+    registry.addInterceptor(new LoginInterceptor()).excludePathPatterns(
       "/shop/**",
       "/voucher/**",
       "/shop-type/**",
