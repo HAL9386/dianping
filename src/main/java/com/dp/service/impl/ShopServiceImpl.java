@@ -12,6 +12,8 @@ import com.dp.service.IShopService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
+
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
   private final StringRedisTemplate redisTemplate;
@@ -41,7 +43,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
       return Result.fail(MessageConstant.SHOP_NOT_EXIST);
     }
     // 存在，写入缓存
-    redisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop));
+    redisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES);
     return Result.ok(shop);
   }
 }
