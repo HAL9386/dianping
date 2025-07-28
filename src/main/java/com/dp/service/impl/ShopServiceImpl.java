@@ -11,6 +11,9 @@ import com.dp.mapper.ShopMapper;
 import com.dp.service.IShopService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.concurrent.TimeUnit;
 
@@ -45,5 +48,32 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     // 存在，写入缓存
     redisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES);
     return Result.ok(shop);
+  }
+
+  /**
+   * 更新商铺信息
+   *
+   * @param shop 商铺数据
+   * @return 无
+   */
+  @Transactional(rollbackFor = Exception.class)
+  @Override
+  public Result update(Shop shop) {
+    if (shop.getId() == null) {
+      return Result.fail(MessageConstant.SHOP_NOT_EXIST);
+    }
+    // 更新数据库
+    updateById(shop);
+    // 删除缓存
+    // 如果删除缓存后发生异常，数据库回滚但redis未删除，会导致缓存与数据库不一致
+    TransactionSynchronizationManager.registerSynchronization(
+      new TransactionSynchronization() {
+        @Override
+        public void afterCommit() {
+          redisTemplate.delete(RedisConstant.CACHE_SHOP_KEY + shop.getId());
+        }
+      }
+    );
+    return Result.ok();
   }
 }
