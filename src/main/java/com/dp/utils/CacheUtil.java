@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.dp.constant.RedisConstant;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -14,11 +15,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
+@Slf4j
 @Component
 public class CacheUtil {
   private final StringRedisTemplate redisTemplate;
   private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
-  private static final Object lock = new Object();
 
   public CacheUtil(StringRedisTemplate redisTemplate) {
     this.redisTemplate = redisTemplate;
@@ -157,17 +158,21 @@ public class CacheUtil {
     if (locked) {
       // double check
       json = redisTemplate.opsForValue().get(key);
-      if (StrUtil.isNotBlank(json)) {
-        return JSONUtil.toBean(json, type);
+      redisData = JSONUtil.toBean(json, RedisData.class);
+      r = JSONUtil.toBean((JSONObject) redisData.getData(), type);
+      // 未过期，直接返回
+      if (redisData.getExpireTime().isAfter(LocalDateTime.now())) {
+        return r;
       }
-      if (json != null) {
-        return null;
-      }
+
+      log.debug("缓存过期，开始重建缓存");
+
       CACHE_REBUILD_EXECUTOR.submit(() -> {
         try {
           R result = dbCallback.apply(id);
           if (result == null) {
             redisTemplate.opsForValue().set(key, RedisConstant.CACHE_NULL_VALUE, RedisConstant.CACHE_NULL_TTL, TimeUnit.MINUTES);
+            return;
           }
           this.setWithLogicExpire(key, result, time, unit);
         } catch (Exception e) {
