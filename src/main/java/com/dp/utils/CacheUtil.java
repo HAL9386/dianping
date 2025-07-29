@@ -18,6 +18,7 @@ import java.util.function.Function;
 public class CacheUtil {
   private final StringRedisTemplate redisTemplate;
   private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
+  private static final Object lock = new Object();
 
   public CacheUtil(StringRedisTemplate redisTemplate) {
     this.redisTemplate = redisTemplate;
@@ -36,11 +37,13 @@ public class CacheUtil {
    * @param dbCallback 数据库查询回调
    * @param time       缓存过期时间
    * @param unit       缓存过期时间单位
-   * @return           缓存数据
    * @param <ID>       缓存后缀类型
    * @param <R>        待查询数据类型
+   * @return 缓存数据
    */
-  public <ID, R> R queryWithPassThrough(String keyPrefix, ID id, Class<R> type, Function<ID, R> dbCallback, Long time, TimeUnit unit) {
+  public <ID, R> R queryWithPassThrough(String keyPrefix, ID id, Class<R> type,
+                                        Long time, TimeUnit unit,
+                                        Function<ID, R> dbCallback) {
     String key = keyPrefix + id;
     String json = redisTemplate.opsForValue().get(key);
     if (StrUtil.isNotBlank(json)) {
@@ -67,51 +70,55 @@ public class CacheUtil {
    * @param dbCallback 数据库查询回调
    * @param time       缓存过期时间
    * @param unit       缓存过期时间单位
-   * @return           缓存数据
    * @param <ID>       缓存后缀类型
    * @param <R>        待查询数据类型
+   * @return 缓存数据
    */
   public <ID, R> R queryWithMutex(String keyPrefix, ID id, Class<R> type,
                                   Long time, TimeUnit unit,
                                   String lockKeyPrefix, Function<ID, R> dbCallback) {
     String key = keyPrefix + id;
-    String json = redisTemplate.opsForValue().get(key);
-    // 缓存命中
-    if (StrUtil.isNotBlank(json)) {
-      return JSONUtil.toBean(json, type);
-    }
-    if (json != null) {
-      return null;
-    }
-    // 缓存未命中，尝试获取分布式锁
     String lockKey = lockKeyPrefix + id;
-    boolean locked = false;
-    try {
-      locked = tryAcquireDistributedLock(lockKey);
-      if (!locked) {
-        Thread.sleep(50);
-        return queryWithMutex(keyPrefix, id, type, time, unit, lockKeyPrefix, dbCallback);
-      }
-      // double check
-      json = redisTemplate.opsForValue().get(key);
+    while (true) {
+      String json = redisTemplate.opsForValue().get(key);
+      // 缓存命中
       if (StrUtil.isNotBlank(json)) {
         return JSONUtil.toBean(json, type);
       }
       if (json != null) {
         return null;
       }
-      R r = dbCallback.apply(id);
-      if (r == null) {
-        redisTemplate.opsForValue().set(key, RedisConstant.CACHE_NULL_VALUE, RedisConstant.CACHE_NULL_TTL, TimeUnit.MINUTES);
-        return null;
-      }
-      this.set(key, r, time, unit);
-      return r;
-    } catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    } finally {
-      if (locked) {
-        releaseDistributedLock(lockKey);
+      // 缓存未命中，尝试获取分布式锁
+      boolean locked = false;
+      try {
+        locked = tryAcquireDistributedLock(lockKey);
+        if (!locked) {
+          Thread.sleep(50);
+          continue;
+        }
+        // double check
+        json = redisTemplate.opsForValue().get(key);
+        if (StrUtil.isNotBlank(json)) {
+          return JSONUtil.toBean(json, type);
+        }
+        if (json != null) {
+          return null;
+        }
+        R r = dbCallback.apply(id);
+        // 模拟重建延时
+//        Thread.sleep(200);
+        if (r == null) {
+          redisTemplate.opsForValue().set(key, RedisConstant.CACHE_NULL_VALUE, RedisConstant.CACHE_NULL_TTL, TimeUnit.MINUTES);
+          return null;
+        }
+        this.set(key, r, time, unit);
+        return r;
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      } finally {
+        if (locked) {
+          releaseDistributedLock(lockKey);
+        }
       }
     }
   }
@@ -125,9 +132,9 @@ public class CacheUtil {
    * @param dbCallback 数据库查询回调
    * @param time       缓存过期时间
    * @param unit       缓存过期时间单位
-   * @return           缓存数据
    * @param <ID>       缓存后缀类型
    * @param <R>        待查询数据类型
+   * @return 缓存数据
    */
   public <ID, R> R queryWithLogicExpire(String keyPrefix, ID id, Class<R> type,
                                         Long time, TimeUnit unit,

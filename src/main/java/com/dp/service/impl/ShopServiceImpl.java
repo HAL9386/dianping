@@ -1,7 +1,5 @@
 package com.dp.service.impl;
 
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.constant.MessageConstant;
 import com.dp.constant.RedisConstant;
@@ -9,6 +7,7 @@ import com.dp.dto.Result;
 import com.dp.entity.Shop;
 import com.dp.mapper.ShopMapper;
 import com.dp.service.IShopService;
+import com.dp.utils.CacheUtil;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,9 +19,11 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
   private final StringRedisTemplate redisTemplate;
+  private final CacheUtil cacheUtil;
 
-  public ShopServiceImpl(StringRedisTemplate redisTemplate) {
+  public ShopServiceImpl(StringRedisTemplate redisTemplate, CacheUtil cacheUtil) {
     this.redisTemplate = redisTemplate;
+    this.cacheUtil = cacheUtil;
   }
 
   /**
@@ -33,24 +34,21 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
    */
   @Override
   public Result queryById(Long id) {
-    // 从redis查询缓存信息
-    String key = RedisConstant.CACHE_SHOP_KEY + id;
-    String shopJson = redisTemplate.opsForValue().get(key);
-    // 如果缓存信息存在，直接返回
-    if (StrUtil.isNotBlank(shopJson)) {
-      return Result.ok(JSONUtil.toBean(shopJson, Shop.class));
-    }
-    if (shopJson != null) {
-      return Result.fail(MessageConstant.SHOP_NOT_EXIST);
-    }
-    // 不存在，查数据库
-    Shop shop = getById(id);
+    // 解决缓存穿透
+//    Shop shop = cacheUtil.queryWithPassThrough(key, id, Shop.class,
+//      RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES,
+//      this::getById);
+    // 利用互斥锁解决缓存击穿
+    Shop shop = cacheUtil.queryWithMutex(RedisConstant.CACHE_SHOP_KEY, id, Shop.class,
+      RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES,
+      RedisConstant.LOCK_SHOP_KEY_PREFIX, this::getById);
+    // 利用逻辑过期解决缓存击穿
+//    Shop shop = cacheUtil.queryWithLogicExpire(RedisConstant.CACHE_SHOP_KEY, id, Shop.class,
+//      RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES,
+//      RedisConstant.LOCK_SHOP_KEY_PREFIX, this::getById);
     if (shop == null) {
-      redisTemplate.opsForValue().set(key, RedisConstant.CACHE_NULL_VALUE, RedisConstant.CACHE_NULL_TTL, TimeUnit.MINUTES);
       return Result.fail(MessageConstant.SHOP_NOT_EXIST);
     }
-    // 存在，写入缓存
-    redisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES);
     return Result.ok(shop);
   }
 
