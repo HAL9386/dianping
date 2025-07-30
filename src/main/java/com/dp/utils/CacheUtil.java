@@ -187,7 +187,7 @@ public class CacheUtil {
     return r;
   }
 
-  private <R> void setWithLogicExpire(String key, R result, Long time, TimeUnit unit) {
+  public <R> void setWithLogicExpire(String key, R result, Long time, TimeUnit unit) {
     LocalDateTime expireTime = LocalDateTime.now().plusSeconds(unit.toSeconds(time));
     RedisData data = RedisData.builder().expireTime(expireTime).data(result).build();
     redisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(data));
