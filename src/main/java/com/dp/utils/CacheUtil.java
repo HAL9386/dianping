@@ -107,7 +107,7 @@ public class CacheUtil {
         }
         R r = dbCallback.apply(id);
         // 模拟重建延时
-//        Thread.sleep(200);
+//        Thread.sleep(100);
         if (r == null) {
           redisTemplate.opsForValue().set(key, RedisConstant.CACHE_NULL_VALUE, RedisConstant.CACHE_NULL_TTL, TimeUnit.MINUTES);
           return null;
@@ -165,10 +165,12 @@ public class CacheUtil {
         return r;
       }
 
-      log.debug("缓存过期，开始重建缓存");
+//      log.debug("缓存过期，开始重建缓存");
 
       CACHE_REBUILD_EXECUTOR.submit(() -> {
         try {
+          // 模拟重建延时
+//          Thread.sleep(100);
           R result = dbCallback.apply(id);
           if (result == null) {
             redisTemplate.opsForValue().set(key, RedisConstant.CACHE_NULL_VALUE, RedisConstant.CACHE_NULL_TTL, TimeUnit.MINUTES);

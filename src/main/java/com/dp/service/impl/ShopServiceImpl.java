@@ -34,8 +34,9 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
    */
   @Override
   public Result queryById(Long id) {
-    // 解决缓存穿透
-//    Shop shop = cacheUtil.queryWithPassThrough(key, id, Shop.class,
+//    long start = System.currentTimeMillis();
+    // 缓存穿透
+//    Shop shop = cacheUtil.queryWithPassThrough(RedisConstant.CACHE_SHOP_KEY, id, Shop.class,
 //      RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES,
 //      this::getById);
     // 利用互斥锁解决缓存击穿
@@ -46,6 +47,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 //    Shop shop = cacheUtil.queryWithLogicExpire(RedisConstant.CACHE_SHOP_KEY, id, Shop.class,
 //      RedisConstant.CACHE_SHOP_TTL, TimeUnit.MINUTES,
 //      RedisConstant.LOCK_SHOP_KEY_PREFIX, this::getById);
+//    long end = System.currentTimeMillis();
+//    System.out.println(end - start);
     if (shop == null) {
       return Result.fail(MessageConstant.SHOP_NOT_EXIST);
     }
