@@ -10,6 +10,7 @@ import com.dp.service.ISeckillVoucherService;
 import com.dp.service.IVoucherOrderService;
 import com.dp.utils.RedisIdWorker;
 import com.dp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +27,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     this.redisIdWorker = redisIdWorker;
   }
 
-  @Transactional(rollbackFor = Exception.class)
   @Override
   public Result seckillVoucher(Long voucherId) {
     // 1.查询优惠券
@@ -46,6 +46,24 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     int stock = voucher.getStock();
     if (stock < 1) {
       return Result.fail(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
+    }
+
+    // 如果锁Long对象或者String对象，即使同一个id值，也会创建新的对象。
+    // 所以对于用一个用户的多次请求，它们不是互斥的。
+    // 可以将id转为String，然后调用intern()方法，将字符串放入字符串常量池。
+    // 这样，对于同一个用户的多次请求，它们会使用同一个字符串对象，从而实现互斥。
+    Long userId = UserHolder.getUser().getId();
+    synchronized (userId.toString().intern()) {
+      IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+      return proxy.createVoucherOrder(voucherId, userId);
+    }
+  }
+
+  @Transactional(rollbackFor = Exception.class)
+  public Result createVoucherOrder(Long voucherId, Long userId) {
+    long count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+    if (count > 0) {
+      return Result.fail(MessageConstant.VOUCHER_ORDER_EXIST);
     }
     // 4.扣减库存
     boolean success = seckillVoucherService.update()
