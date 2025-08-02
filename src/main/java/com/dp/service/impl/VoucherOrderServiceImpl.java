@@ -9,8 +9,9 @@ import com.dp.mapper.VoucherOrderMapper;
 import com.dp.service.ISeckillVoucherService;
 import com.dp.service.IVoucherOrderService;
 import com.dp.utils.RedisIdWorker;
-import com.dp.utils.SimpleRedisLock;
 import com.dp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -24,11 +25,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
   private final ISeckillVoucherService seckillVoucherService;
   private final RedisIdWorker redisIdWorker;
   private final StringRedisTemplate redisTemplate;
+  private final RedissonClient redissonClient;
 
-  public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedisIdWorker redisIdWorker, StringRedisTemplate redisTemplate) {
+  public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedisIdWorker redisIdWorker, StringRedisTemplate redisTemplate, RedissonClient redissonClient) {
     this.seckillVoucherService = seckillVoucherService;
     this.redisIdWorker = redisIdWorker;
     this.redisTemplate = redisTemplate;
+    this.redissonClient = redissonClient;
   }
 
   @Override
@@ -57,8 +60,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     // 可以将id转为String，然后调用intern()方法，将字符串放入字符串常量池。
     // 这样，对于同一个用户的多次请求，它们会使用同一个字符串对象，从而实现互斥。
     Long userId = UserHolder.getUser().getId();
-    SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
-    if (!lock.tryLock(5)) {
+//    SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
+    RLock lock = redissonClient.getLock("lock:order:" + userId);
+    if (!lock.tryLock()) {
       return Result.fail(MessageConstant.VOUCHER_ORDER_EXIST);
     }
     try {
