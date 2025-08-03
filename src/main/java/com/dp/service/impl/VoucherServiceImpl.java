@@ -1,14 +1,18 @@
 package com.dp.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.dp.constant.RedisConstant;
 import com.dp.dto.Result;
 import com.dp.entity.SeckillVoucher;
 import com.dp.entity.Voucher;
 import com.dp.mapper.VoucherMapper;
 import com.dp.service.ISeckillVoucherService;
 import com.dp.service.IVoucherService;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -16,9 +20,11 @@ import java.util.List;
 public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> implements IVoucherService {
 
   private final ISeckillVoucherService seckillVoucherService;
+  private final StringRedisTemplate redisTemplate;
 
-  public VoucherServiceImpl(ISeckillVoucherService seckillVoucherService) {
+  public VoucherServiceImpl(ISeckillVoucherService seckillVoucherService, StringRedisTemplate redisTemplate) {
     this.seckillVoucherService = seckillVoucherService;
+    this.redisTemplate = redisTemplate;
   }
 
   @Override
@@ -41,5 +47,13 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
     seckillVoucher.setBeginTime(voucher.getBeginTime());
     seckillVoucher.setEndTime(voucher.getEndTime());
     seckillVoucherService.save(seckillVoucher);
+    TransactionSynchronizationManager.registerSynchronization(
+      new TransactionSynchronization() {
+        @Override
+        public void afterCommit() {
+          redisTemplate.opsForValue().set(RedisConstant.SECKILL_STOCK_KEY + voucher.getId(), voucher.getStock().toString());
+        }
+      }
+    );
   }
 }
