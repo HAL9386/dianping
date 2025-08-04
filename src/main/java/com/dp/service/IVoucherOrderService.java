@@ -22,4 +22,11 @@ public interface IVoucherOrderService extends IService<VoucherOrder> {
    * @return 结果
    */
   Result createVoucherOrder(Long voucherId, Long userId);
+
+  /**
+   * 保存优惠券订单。下单时由异步线程调用执行。
+   *
+   * @param voucherOrder 优惠券订单
+   */
+  void persistOrder(VoucherOrder voucherOrder);
 }

@@ -3,74 +3,161 @@ package com.dp.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.constant.MessageConstant;
 import com.dp.dto.Result;
-import com.dp.entity.SeckillVoucher;
 import com.dp.entity.VoucherOrder;
 import com.dp.mapper.VoucherOrderMapper;
 import com.dp.service.ISeckillVoucherService;
 import com.dp.service.IVoucherOrderService;
 import com.dp.utils.RedisIdWorker;
 import com.dp.utils.UserHolder;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+@Slf4j
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
   private final ISeckillVoucherService seckillVoucherService;
   private final RedisIdWorker redisIdWorker;
   private final StringRedisTemplate redisTemplate;
-  private final RedissonClient redissonClient;
+  private final IVoucherOrderService proxyService;
+  private final BlockingQueue<VoucherOrder> orderTaskQueue = new ArrayBlockingQueue<>(1024);
+  private static final DefaultRedisScript<Long> SECKILL_VALIDATION_SCRIPT = new DefaultRedisScript<>();
+  private static final ExecutorService ORDER_PERSIST_EXECUTOR = Executors.newSingleThreadExecutor();
 
-  public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedisIdWorker redisIdWorker, StringRedisTemplate redisTemplate, RedissonClient redissonClient) {
+  static {
+    SECKILL_VALIDATION_SCRIPT.setLocation(new ClassPathResource("seckillValidation.lua"));
+    SECKILL_VALIDATION_SCRIPT.setResultType(Long.class);
+  }
+
+  public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService,
+                                 RedisIdWorker redisIdWorker,
+                                 StringRedisTemplate redisTemplate,
+                                 @Lazy IVoucherOrderService proxyService
+  ) {
     this.seckillVoucherService = seckillVoucherService;
     this.redisIdWorker = redisIdWorker;
     this.redisTemplate = redisTemplate;
-    this.redissonClient = redissonClient;
+    this.proxyService = proxyService;
   }
 
+  @PostConstruct
+  private void init() {
+    ORDER_PERSIST_EXECUTOR.submit(new OrderPersistHandler(orderTaskQueue, proxyService));
+  }
+
+  @PreDestroy
+  private void shutdown() {
+    ORDER_PERSIST_EXECUTOR.shutdown();
+  }
+
+  private record OrderPersistHandler(
+    BlockingQueue<VoucherOrder> queue,
+    IVoucherOrderService proxyService
+  ) implements Runnable {
+    @Override
+    public void run() {
+      try {
+        while (!Thread.currentThread().isInterrupted()) {
+          VoucherOrder order = queue.take();
+          proxyService.persistOrder(order);
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (Exception e) {
+        log.error("订单持久化异常", e);
+      }
+    }
+  }
+
+  @Transactional(rollbackFor = Exception.class)
+  @Override
+  public void persistOrder(VoucherOrder voucherOrder) {
+    seckillVoucherService.update()
+      .setSql("stock = stock - 1")
+      .eq("voucher_id", voucherOrder.getVoucherId())
+      .gt("stock", 0)
+      .update();
+    save(voucherOrder);
+  }
+
+//  @Override
+//  public Result seckillVoucher(Long voucherId) {
+//    // 1.查询优惠券
+//    SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
+//    if (voucher == null) {
+//      return Result.fail(MessageConstant.VOUCHER_NOT_EXIST);
+//    }
+//    // 2.优惠券是否在有效期内
+//    LocalDateTime now = LocalDateTime.now();
+//    if (now.isBefore(voucher.getBeginTime())) {
+//      return Result.fail(MessageConstant.VOUCHER_NOT_BEGIN);
+//    }
+//    if (now.isAfter(voucher.getEndTime())) {
+//      return Result.fail(MessageConstant.VOUCHER_ALREADY_END);
+//    }
+//    // 3.优惠券库存是否充足
+//    int stock = voucher.getStock();
+//    if (stock < 1) {
+//      return Result.fail(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
+//    }
+//
+//    // 如果锁Long对象或者String对象，即使同一个id值，也会创建新的对象。
+//    // 所以对于用一个用户的多次请求，它们不是互斥的。
+//    // 可以将id转为String，然后调用intern()方法，将字符串放入字符串常量池。
+//    // 这样，对于同一个用户的多次请求，它们会使用同一个字符串对象，从而实现互斥。
+//    Long userId = UserHolder.getUser().getId();
+
+  /// /    SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
+//    RLock lock = redissonClient.getLock("lock:order:" + userId);
+//    if (!lock.tryLock()) {
+//      return Result.fail(MessageConstant.VOUCHER_ORDER_EXIST);
+//    }
+//    try {
+//      IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//      return proxy.createVoucherOrder(voucherId, userId);
+//    } finally {
+//      lock.unlock();
+//    }
+//  }
   @Override
   public Result seckillVoucher(Long voucherId) {
-    // 1.查询优惠券
-    SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
-    if (voucher == null) {
-      return Result.fail(MessageConstant.VOUCHER_NOT_EXIST);
-    }
-    // 2.优惠券是否在有效期内
-    LocalDateTime now = LocalDateTime.now();
-    if (now.isBefore(voucher.getBeginTime())) {
-      return Result.fail(MessageConstant.VOUCHER_NOT_BEGIN);
-    }
-    if (now.isAfter(voucher.getEndTime())) {
-      return Result.fail(MessageConstant.VOUCHER_ALREADY_END);
-    }
-    // 3.优惠券库存是否充足
-    int stock = voucher.getStock();
-    if (stock < 1) {
+    Long userId = UserHolder.getUser().getId();
+    long result = redisTemplate.execute(SECKILL_VALIDATION_SCRIPT,
+      Collections.emptyList(),
+      voucherId.toString(), userId.toString());
+    if (result == 1) {
       return Result.fail(MessageConstant.VOUCHER_STOCK_NOT_ENOUGH);
     }
-
-    // 如果锁Long对象或者String对象，即使同一个id值，也会创建新的对象。
-    // 所以对于用一个用户的多次请求，它们不是互斥的。
-    // 可以将id转为String，然后调用intern()方法，将字符串放入字符串常量池。
-    // 这样，对于同一个用户的多次请求，它们会使用同一个字符串对象，从而实现互斥。
-    Long userId = UserHolder.getUser().getId();
-//    SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
-    RLock lock = redissonClient.getLock("lock:order:" + userId);
-    if (!lock.tryLock()) {
+    if (result == 2) {
       return Result.fail(MessageConstant.VOUCHER_ORDER_EXIST);
     }
+    assert result == 0;
+    Long orderId = redisIdWorker.nextId("order");
+    VoucherOrder voucherOrder = VoucherOrder.builder()
+      .id(orderId)
+      .userId(userId)
+      .voucherId(voucherId)
+      .build();
     try {
-      IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-      return proxy.createVoucherOrder(voucherId, userId);
-    } finally {
-      lock.unlock();
+      orderTaskQueue.put(voucherOrder);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return Result.fail(MessageConstant.VOUCHER_ORDER_FAIL);
     }
+    return Result.ok(orderId);
   }
 
   @Transactional(rollbackFor = Exception.class)

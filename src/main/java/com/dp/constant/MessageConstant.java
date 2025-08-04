@@ -10,4 +10,5 @@ public class MessageConstant {
   public static final String VOUCHER_ALREADY_END = "优惠已结束";
   public static final String VOUCHER_STOCK_NOT_ENOUGH = "优惠券库存不足";
   public static final String VOUCHER_ORDER_EXIST = "优惠券已购买，不可重复下单";
+  public static final String VOUCHER_ORDER_FAIL = "优惠券下单失败";
 }
