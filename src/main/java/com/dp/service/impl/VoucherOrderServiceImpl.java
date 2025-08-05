@@ -63,7 +63,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
   @PreDestroy
   private void shutdown() {
-    ORDER_PERSIST_EXECUTOR.shutdown();
+    ORDER_PERSIST_EXECUTOR.shutdownNow();
   }
 
   @Override
@@ -87,15 +87,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     StringRedisTemplate redisTemplate,
     IVoucherOrderService proxyService
   ) implements Runnable {
-    @SuppressWarnings({"unchecked", "InfiniteLoopStatement"})
+    @SuppressWarnings({"unchecked"})
     @Override
     public void run() {
       try {
         redisTemplate.opsForStream().createGroup(RedisConstant.STREAM_ORDER, "group1");
       } catch (Exception e) {
-        log.warn("stream订单消费组已存在", e);
+        log.warn("stream订单消费组已存在");
       }
-      while (true) {
+      while (!Thread.currentThread().isInterrupted()) {
         try {
           // XREADGROUP GROUP g1 c1 COUNT 1 BLOCK 2000 STREAMS streams.orders >
           List<MapRecord<String, Object, Object>> orderList = redisTemplate.opsForStream().read(
@@ -115,6 +115,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
           // SACK stream.orders g1 id
           redisTemplate.opsForStream().acknowledge(RedisConstant.STREAM_ORDER, "group1", record.getId());
         } catch (Exception e) {
+          if (Thread.currentThread().isInterrupted()) {
+            log.info("订单持久化线程被中断，准备退出。");
+            break;
+          }
           log.error("持久化订单错误", e);
           handlePendingList();
         }
@@ -123,7 +127,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @SuppressWarnings("unchecked")
     private void handlePendingList() {
-      while (true) {
+      while (!Thread.currentThread().isInterrupted()) {
         try {
           // XREADGROUP GROUP g1 c1 COUNT 1 STREAMS streams.orders 0
           List<MapRecord<String, Object, Object>> orderList = redisTemplate.opsForStream().read(
@@ -143,6 +147,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
           // SACK stream.orders g1 id
           redisTemplate.opsForStream().acknowledge(RedisConstant.STREAM_ORDER, "group1", record.getId());
         } catch (Exception e) {
+          if (Thread.currentThread().isInterrupted()) {
+            log.info("订单持久化线程被中断，准备退出。");
+            break;
+          }
           log.error("持久化pendingList订单错误", e);
         }
       }
