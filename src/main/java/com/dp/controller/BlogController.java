@@ -5,9 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dp.dto.Result;
 import com.dp.dto.UserDTO;
 import com.dp.entity.Blog;
-import com.dp.entity.User;
 import com.dp.service.IBlogService;
-import com.dp.service.IUserService;
 import com.dp.utils.SystemConstants;
 import com.dp.utils.UserHolder;
 import org.springframework.web.bind.annotation.*;
@@ -19,11 +17,9 @@ import java.util.List;
 public class BlogController {
 
   private final IBlogService blogService;
-  private final IUserService userService;
 
-  public BlogController(IBlogService blogService, IUserService userService) {
+  public BlogController(IBlogService blogService) {
     this.blogService = blogService;
-    this.userService = userService;
   }
 
   @PostMapping
@@ -59,19 +55,11 @@ public class BlogController {
 
   @GetMapping("/hot")
   public Result queryHotBlog(@RequestParam(value = "current", defaultValue = "1") Integer current) {
-    // 根据用户查询
-    Page<Blog> page = blogService.query()
-      .orderByDesc("liked")
-      .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
-    // 获取当前页数据
-    List<Blog> records = page.getRecords();
-    // 查询用户
-    records.forEach(blog -> {
-      Long userId = blog.getUserId();
-      User user = userService.getById(userId);
-      blog.setName(user.getNickName());
-      blog.setIcon(user.getIcon());
-    });
-    return Result.ok(records);
+    return blogService.queryHotBlog(current);
+  }
+
+  @GetMapping("/{id}")
+  public Result queryBlogById(@PathVariable("id") Long id) {
+    return blogService.queryBlogById(id);
   }
 }
