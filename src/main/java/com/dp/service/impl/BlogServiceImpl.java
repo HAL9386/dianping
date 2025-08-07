@@ -18,7 +18,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 @Service
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
@@ -64,48 +63,45 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
   @Override
   public Result likeBlog(Long id) {
     RLock lock = redissonClient.getLock(RedisConstant.LOCK_BLOG_LIKED_PREFIX + id);
+    if (!lock.tryLock()) {
+      return Result.ok();
+    }
     try {
-      if (lock.tryLock(10, TimeUnit.SECONDS)) {
-        try {
-          Long userId = UserHolder.getUser().getId();
-          String key = RedisConstant.BLOG_LIKED_KEY_PREFIX + id;
-          Boolean isMember = redisTemplate.opsForSet().isMember(key, userId.toString());
-          if (Boolean.TRUE.equals(isMember)) {
-            // 如果已点赞，取消点赞
-            if (update().setSql("liked = liked - 1").eq("id", id).update()) {
-              redisTemplate.opsForSet().remove(key, userId.toString());
-            }
-          } else {
-            // 如果未点赞，点赞
-            if (update().setSql("liked = liked + 1").eq("id", id).update()) {
-              redisTemplate.opsForSet().add(key, userId.toString());
-            }
-          }
-        } finally {
-          lock.unlock();
+      Long userId = UserHolder.getUser().getId();
+      String key = RedisConstant.BLOG_LIKED_KEY_PREFIX + id;
+      Boolean isMember = redisTemplate.opsForSet().isMember(key, userId.toString());
+      if (Boolean.TRUE.equals(isMember)) {
+        // 如果已点赞，取消点赞
+        if (update().setSql("liked = liked - 1").eq("id", id).update()) {
+          redisTemplate.opsForSet().remove(key, userId.toString());
+        }
+      } else {
+        // 如果未点赞，点赞
+        if (update().setSql("liked = liked + 1").eq("id", id).update()) {
+          redisTemplate.opsForSet().add(key, userId.toString());
         }
       }
-    } catch (InterruptedException e) {
-      throw new RuntimeException(e);
+    } finally {
+      lock.unlock();
     }
     return Result.ok();
   }
 
-private void setBlogLiked(Blog blog) {
-  if (UserHolder.getUser() == null) {
-    // 用户未登录，无需设置点赞状态
-    return;
+  private void setBlogLiked(Blog blog) {
+    if (UserHolder.getUser() == null) {
+      // 用户未登录，无需设置点赞状态
+      return;
+    }
+    Long userId = UserHolder.getUser().getId();
+    String key = RedisConstant.BLOG_LIKED_KEY_PREFIX + blog.getId();
+    Boolean isMember = redisTemplate.opsForSet().isMember(key, userId.toString());
+    blog.setIsLike(Boolean.TRUE.equals(isMember));
   }
-  Long userId = UserHolder.getUser().getId();
-  String key = RedisConstant.BLOG_LIKED_KEY_PREFIX + blog.getId();
-  Boolean isMember = redisTemplate.opsForSet().isMember(key, userId.toString());
-  blog.setIsLike(Boolean.TRUE.equals(isMember));
-}
 
-private void queryBlogUser(Blog blog) {
-  Long userId = blog.getUserId();
-  User user = userService.getById(userId);
-  blog.setName(user.getNickName());
-  blog.setIcon(user.getIcon());
-}
+  private void queryBlogUser(Blog blog) {
+    Long userId = blog.getUserId();
+    User user = userService.getById(userId);
+    blog.setName(user.getNickName());
+    blog.setIcon(user.getIcon());
+  }
 }
