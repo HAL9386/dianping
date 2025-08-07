@@ -108,6 +108,17 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     return Result.ok(userDTOList);
   }
 
+  @Override
+  public Result queryBlogByUserId(Integer current, Long id) {
+    Page<Blog> page = query().eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+    List<Blog> records = page.getRecords();
+    records.forEach(blog -> {
+      queryBlogUser(blog);
+      setBlogLiked(blog);
+    });
+    return Result.ok(records);
+  }
+
   private void setBlogLiked(Blog blog) {
     if (UserHolder.getUser() == null) {
       // 用户未登录，无需设置点赞状态
