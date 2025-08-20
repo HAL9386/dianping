@@ -9,9 +9,11 @@ import com.dp.constant.RedisConstant;
 import com.dp.dto.Result;
 import com.dp.dto.UserDTO;
 import com.dp.entity.Blog;
+import com.dp.entity.Follow;
 import com.dp.entity.User;
 import com.dp.mapper.BlogMapper;
 import com.dp.service.IBlogService;
+import com.dp.service.IFollowService;
 import com.dp.service.IUserService;
 import com.dp.utils.SystemConstants;
 import com.dp.utils.UserHolder;
@@ -29,11 +31,13 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
   private final IUserService userService;
   private final StringRedisTemplate redisTemplate;
   private final RedissonClient redissonClient;
+  private final IFollowService followService;
 
-  public BlogServiceImpl(IUserService userService, StringRedisTemplate redisTemplate, RedissonClient redissonClient) {
+  public BlogServiceImpl(IUserService userService, StringRedisTemplate redisTemplate, RedissonClient redissonClient, IFollowService followService) {
     this.userService = userService;
     this.redisTemplate = redisTemplate;
     this.redissonClient = redissonClient;
+    this.followService = followService;
   }
 
   @Override
@@ -117,6 +121,24 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
       setBlogLiked(blog);
     });
     return Result.ok(records);
+  }
+
+  @Override
+  public Result saveBlog(Blog blog) {
+    // 获取登录用户
+    UserDTO user = UserHolder.getUser();
+    blog.setUserId(user.getId());
+    // 保存探店博文
+    save(blog);
+    List<Follow> follows = followService.query().eq("follow_user_id", user.getId()).list();
+    for (Follow follow : follows) {
+      Long followeeUserId = follow.getUserId();
+      String key = RedisConstant.FEED_KEY_PREFIX + followeeUserId;
+      // 推送到关注着的收件箱（zset）
+      redisTemplate.opsForZSet().add(key, blog.getId().toString(), System.currentTimeMillis());
+    }
+    // 返回id
+    return Result.ok(blog.getId());
   }
 
   private void setBlogLiked(Blog blog) {
