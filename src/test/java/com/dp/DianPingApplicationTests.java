@@ -11,13 +11,18 @@ import com.dp.utils.RedisIdWorker;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 @SpringBootTest
 class DianPingApplicationTests {
@@ -80,5 +85,48 @@ class DianPingApplicationTests {
     }
     long end = System.currentTimeMillis();
     System.out.println("time: " + (end - start));
+  }
+
+  // 加载店铺的地理位置数据到redis里的geo
+  // 键为 geo:shopType:{shopType}
+  @Test
+  public void loadShopGeoDataUsingGroup() {
+    // 1. 查询所有店铺信息
+    List<Shop> shopList = shopService.list();
+    // 2. 将店铺信息按类型分组
+    Map<Long, List<Shop>> shopMap = shopList.stream().collect(Collectors.groupingBy(Shop::getTypeId));
+    // 3. 添加到redis的geo里
+    for (Map.Entry<Long, List<Shop>> entry : shopMap.entrySet()) {
+      Long shopTypeId = entry.getKey();
+      List<Shop> shops = entry.getValue();
+      List<RedisGeoCommands.GeoLocation<String>> locations = new ArrayList<>(shops.size());
+      for (Shop shop : shops) {
+//        redisTemplate.opsForGeo().add(
+//          RedisConstant.GEO_SHOPTYPE_KEY_PREFIX + shopTypeId,
+//          new Point(shop.getX(), shop.getY()),
+//          shop.getId().toString()
+//        );
+        locations.add(new RedisGeoCommands.GeoLocation<>(
+                            shop.getId().toString(),
+                            new Point(shop.getX(), shop.getY())
+                          )
+        );
+      }
+      redisTemplate.opsForGeo().add(RedisConstant.GEO_SHOPTYPE_KEY_PREFIX + shopTypeId, locations);
+    }
+  }
+
+  @Test
+  public void loadShopGeoDataUsingLoop() {
+    // 1. 查询所有店铺信息
+    List<Shop> shopList = shopService.list();
+    // 2. 添加到redis的geo里
+    for (Shop shop : shopList) {
+      redisTemplate.opsForGeo().add(
+        RedisConstant.GEO_SHOPTYPE_KEY_PREFIX + shop.getTypeId(),
+        new Point(shop.getX(), shop.getY()),
+        shop.getId().toString()
+      );
+    }
   }
 }
