@@ -3,9 +3,13 @@ package com.dp;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.json.JSONUtil;
 import com.dp.constant.RedisConstant;
+import com.dp.entity.SeckillVoucher;
 import com.dp.entity.Shop;
 import com.dp.entity.User;
+import com.dp.entity.VoucherOrder;
+import com.dp.service.ISeckillVoucherService;
 import com.dp.service.IShopService;
+import com.dp.service.IVoucherOrderService;
 import com.dp.utils.RedisData;
 import com.dp.utils.RedisIdWorker;
 import org.junit.jupiter.api.Test;
@@ -26,6 +30,12 @@ import java.util.stream.Collectors;
 
 @SpringBootTest
 class DianPingApplicationTests {
+  @Autowired
+  private IVoucherOrderService voucherOrderService;
+
+  @Autowired
+  private ISeckillVoucherService seckillVoucherService;
+
   @Autowired
   private StringRedisTemplate redisTemplate;
 
@@ -107,9 +117,9 @@ class DianPingApplicationTests {
 //          shop.getId().toString()
 //        );
         locations.add(new RedisGeoCommands.GeoLocation<>(
-                            shop.getId().toString(),
-                            new Point(shop.getX(), shop.getY())
-                          )
+            shop.getId().toString(),
+            new Point(shop.getX(), shop.getY())
+          )
         );
       }
       redisTemplate.opsForGeo().add(RedisConstant.GEO_SHOPTYPE_KEY_PREFIX + shopTypeId, locations);
@@ -127,6 +137,30 @@ class DianPingApplicationTests {
         new Point(shop.getX(), shop.getY()),
         shop.getId().toString()
       );
+    }
+  }
+
+  @Test
+  public void rebuildSeckillInRedis() {
+    // 1. 查询所有秒杀商品
+    List<SeckillVoucher> seckillVoucherList = seckillVoucherService.list();
+    // 2. 重建秒杀商品的库存
+    for (SeckillVoucher seckillVoucher : seckillVoucherList) {
+      redisTemplate.opsForValue().set(RedisConstant.SECKILL_STOCK_KEY + seckillVoucher.getVoucherId(), seckillVoucher.getStock().toString());
+    }
+    // 3. 重建秒杀商品的已购订单用户集合
+    List<VoucherOrder> orderList = voucherOrderService.list();
+    Map<Long, List<VoucherOrder>> orderMap = orderList.stream().collect(Collectors.groupingBy(VoucherOrder::getVoucherId));
+    for (Map.Entry<Long, List<VoucherOrder>> entry : orderMap.entrySet()) {
+      Long voucherId = entry.getKey();
+      List<VoucherOrder> orders = entry.getValue();
+      String key = RedisConstant.SECKILL_ORDER_KEY + voucherId;
+      // 将用户id转为String数组，作为可变参数传入
+      String[] userIds = orders.stream()
+        .map(VoucherOrder::getUserId)
+        .map(String::valueOf)
+        .toArray(String[]::new);
+      redisTemplate.opsForSet().add(key, userIds);
     }
   }
 }

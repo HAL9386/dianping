@@ -17,6 +17,7 @@ public class RedisConstant {
   public static final String LOCK_BLOG_LIKED_PREFIX = "lock:blog:liked:";
 
   public static final String SECKILL_STOCK_KEY = "seckill:stock:";
+  public static final String SECKILL_ORDER_KEY = "seckill:order:";
   public static final String FEED_KEY_PREFIX = "feed:";
   public static final String GEO_SHOPTYPE_KEY_PREFIX = "geo:shopType:";
 
