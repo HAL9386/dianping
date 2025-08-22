@@ -58,6 +58,7 @@ public class ShopController {
 
   /**
    * 根据商铺类型分页查询商铺信息
+   * 如果提供了用户地址经纬度还可以根据距离排序返回结果
    *
    * @param typeId  商铺类型
    * @param current 页码
@@ -66,14 +67,11 @@ public class ShopController {
   @GetMapping("/of/type")
   public Result queryShopByType(
     @RequestParam("typeId") Integer typeId,
-    @RequestParam(value = "current", defaultValue = "1") Integer current
+    @RequestParam(value = "current", defaultValue = "1") Integer current,
+    @RequestParam(value = "x", required = false) Double longitude,
+    @RequestParam(value = "y", required = false) Double latitude
   ) {
-    // 根据类型分页查询
-    Page<Shop> page = shopService.query()
-      .eq("type_id", typeId)
-      .page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
-    // 返回数据
-    return Result.ok(page.getRecords());
+    return shopService.queryShopByType(typeId, current, longitude, latitude);
   }
 
   /**

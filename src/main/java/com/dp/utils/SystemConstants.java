@@ -11,4 +11,5 @@ public class SystemConstants {
   public static final int USER_NICK_NAME_SUFFIX_LENGTH = 10;
 //  public static final String USER_PHONE_SESSION_KEY = "phone";
   public static final String HEADER_TOKEN_KEY = "authorization";
+  public static final Double GEO_SHOP_DISTANCE = 5000.0;
 }
