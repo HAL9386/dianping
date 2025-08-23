@@ -16,11 +16,14 @@ import com.dp.mapper.UserMapper;
 import com.dp.service.IUserService;
 import com.dp.utils.RegexUtils;
 import com.dp.utils.SystemConstants;
+import com.dp.utils.UserHolder;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -107,6 +110,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
     UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
     return Result.ok(userDTO);
+  }
+
+  @Override
+  public Result sign() {
+    Long      userId     = UserHolder.getUser().getId();
+    LocalDate now        = LocalDate.now();
+    String    date       = now.format(DateTimeFormatter.ofPattern( ":yyyyMM"));
+    String    key        = RedisConstant.SIGN_DATE_KEY_PREFIX + userId + date;
+    int       dayOfMonth = now.getDayOfMonth();
+    stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
+    return Result.ok();
   }
 
   /**

@@ -24,4 +24,6 @@ public class RedisConstant {
   public static final String STREAM_ORDER = "stream.orders";
 
   public static final String BLOG_LIKED_KEY_PREFIX = "blog:liked:";
+
+  public static final String SIGN_DATE_KEY_PREFIX = "sign:";
 }
