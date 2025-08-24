@@ -19,12 +19,14 @@ import com.dp.utils.SystemConstants;
 import com.dp.utils.UserHolder;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -121,6 +123,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     int       dayOfMonth = now.getDayOfMonth();
     stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
     return Result.ok();
+  }
+
+  /**
+   * 查询用户连续签到次数
+   *
+   * @return 连续签到次数
+   */
+  @Override
+  public Result signCount() {
+    Long      userId      = UserHolder.getUser().getId();
+    LocalDate today       = LocalDate.now();
+    LocalDate date        = today;
+    int       totalStreak = 0;
+    while (true) {
+      String key = RedisConstant.SIGN_DATE_KEY_PREFIX + userId + date.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+      // 计算要取的位数，如果是本月，取到当前日期；如果不是，取该月的天数
+      int dayOfMonth = date.equals(today) ? date.getDayOfMonth() : date.lengthOfMonth();
+      List<Long> result = stringRedisTemplate.opsForValue().bitField(
+        key,
+        BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0)
+      );
+      long bits = (result != null && !result.isEmpty() && result.get(0) != null) ? result.get(0) : 0;
+      int streak = Integer.numberOfTrailingZeros(~(int) bits);
+      if (streak < dayOfMonth) {
+        totalStreak += streak;
+        break;
+      } else {
+        totalStreak += dayOfMonth;
+        date = date.minusMonths(1);
+      }
+    }
+    return Result.ok(totalStreak);
   }
 
   /**

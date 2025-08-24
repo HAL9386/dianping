@@ -29,4 +29,11 @@ public interface IUserService extends IService<User> {
   Result queryUserById(Long id);
 
   Result sign();
+
+  /**
+   * 查询用户连续签到次数
+   *
+   * @return 连续签到次数
+   */
+  Result signCount();
 }
